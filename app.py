@@ -9,14 +9,14 @@ app = FastAPI()
 
 # Load the model and vectorizer
 try:
-    model = joblib.load("toxic_classifier.joblib")
+    model = joblib.load("toxic_classifier.pkl")
     print("✅ Model loaded successfully!")
 except Exception as e:
     print(f"❌ Error loading model: {e}")
     exit(1)
 
 try:
-    vectorizer = joblib.load("vectorizer.joblib")
+    vectorizer = joblib.load("vectorizer.pkl")
     print("✅ Vectorizer loaded successfully!")
 except Exception as e:
     print(f"❌ Error loading vectorizer: {e}")
