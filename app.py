@@ -1,22 +1,30 @@
-import streamlit as st  # Correct import
+from fastapi import FastAPI
+from pydantic import BaseModel
 import joblib
 import re
 import string
 
+# Initialize FastAPI app
+app = FastAPI()
+
 # Load the model and vectorizer
 try:
     model = joblib.load("toxic_classifier.joblib")
-    st.success("Model loaded successfully!")
+    print("✅ Model loaded successfully!")
 except Exception as e:
-    st.error(f"Error loading model: {e}")
-    st.stop()
+    print(f"❌ Error loading model: {e}")
+    exit(1)
 
 try:
     vectorizer = joblib.load("vectorizer.joblib")
-    st.success("Vectorizer loaded successfully!")
+    print("✅ Vectorizer loaded successfully!")
 except Exception as e:
-    st.error(f"Error loading vectorizer: {e}")
-    st.stop()
+    print(f"❌ Error loading vectorizer: {e}")
+    exit(1)
+
+# Input data model
+class TextInput(BaseModel):
+    text: str
 
 # Preprocessing function
 def preprocess_text(text):
@@ -26,27 +34,14 @@ def preprocess_text(text):
     text = text.strip()  # Strip spaces
     return text
 
-# Streamlit app
-st.title("Toxic Text Classification")
-st.write("Enter a text to check if it's toxic or safe.")
-
-# Input text box
-user_input = st.text_area("Enter your text here:")
-
-if st.button("Predict"):
-    if user_input:
-        try:
-            # Preprocess and vectorize the input text
-            processed_text = preprocess_text(user_input)
-            text_vectorized = vectorizer.transform([processed_text])
-
-            # Make a prediction
-            prediction = model.predict(text_vectorized)
-            result = "Toxic" if prediction[0] == 1 else "Safe"
-
-            # Display the result
-            st.write(f"Prediction: **{result}**")
-        except Exception as e:
-            st.error(f"Error during prediction: {e}")
-    else:
-        st.write("Please enter some text.")
+# API Endpoint
+@app.post("/predict/")
+async def predict(data: TextInput):
+    try:
+        processed_text = preprocess_text(data.text)
+        text_vectorized = vectorizer.transform([processed_text])
+        prediction = model.predict(text_vectorized)
+        result = "Toxic" if prediction[0] == 1 else "Safe"
+        return {"prediction": result}
+    except Exception as e:
+        return {"error": str(e)}
