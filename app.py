@@ -1,58 +1,85 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
+from flask import Flask, request, jsonify
 from pydantic import BaseModel
-import pickle  # Use pickle for .pkl files
+from transformers import pipeline
+from PIL import Image
+import joblib
 import re
 import string
+import io
+from threading import Thread
+from pyngrok import ngrok
+import uvicorn
 
-# Initialize FastAPI app
-app = FastAPI()
+# Initialize FastAPI and Flask
+app_fastapi = FastAPI()
+app_flask = Flask(_name_)
 
-# Load the model and vectorizer using pickle
+# ✅ Load NSFW Image Classification Model
+pipe = pipeline("image-classification", model="LukeJacob2023/nsfw-image-detector")
+
+# ✅ Load Toxic Text Classification Model
 try:
-    with open("toxic_classifier.pkl", "rb") as f:
-        model = pickle.load(f)
-    print("Model loaded successfully!")
+    model = joblib.load("toxic_classifier.pkl")
+    vectorizer = joblib.load("vectorizer.pkl")
+    print("✅ Model & Vectorizer Loaded Successfully!")
 except Exception as e:
-    print(f"Error loading model: {e}")
-    exit()
+    print(f"❌ Error: {e}")
+    exit(1)
 
-try:
-    with open("vectorizer.pkl", "rb") as f:
-        vectorizer = pickle.load(f)
-    print("Vectorizer loaded successfully!")
-except Exception as e:
-    print(f"Error loading vectorizer: {e}")
-    exit()
-
-# Define request body schema
+# 📌 Text Input Data Model
 class TextInput(BaseModel):
     text: str
 
-# Preprocessing function
+# 🔹 Text Preprocessing Function
 def preprocess_text(text):
-    text = text.lower()  # Convert to lowercase
+    text = text.lower()
     text = re.sub(r'\d+', '', text)  # Remove numbers
     text = text.translate(str.maketrans('', '', string.punctuation))  # Remove punctuation
-    text = text.strip()  # Strip spaces
-    return text
+    return text.strip()
 
-# Prediction endpoint
-@app.post("/predict/")
-async def predict(input_text: TextInput):
+# 📌 NSFW Image Classification API (Flask)
+@app_flask.route('/classify_image', methods=['POST'])
+def classify_image():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    file = request.files['file']
+    image = Image.open(io.BytesIO(file.read()))
+    results = pipe(image)
+    
+    classification_label = max(results, key=lambda x: x['score'])['label']
+    nsfw_labels = {"sexy", "porn", "hentai"}
+    nsfw_status = "NSFW" if classification_label in nsfw_labels else "SFW"
+
+    return jsonify({"status": nsfw_status, "results": results})
+
+# 📌 Toxic Text Classification API (FastAPI)
+@app_fastapi.post("/classify_text/")
+async def classify_text(data: TextInput):
     try:
-        # Preprocess and vectorize the input text
-        processed_text = preprocess_text(input_text.text)
+        processed_text = preprocess_text(data.text)
         text_vectorized = vectorizer.transform([processed_text])
-
-        # Make a prediction
         prediction = model.predict(text_vectorized)
         result = "Toxic" if prediction[0] == 1 else "Safe"
-
         return {"prediction": result}
     except Exception as e:
         return {"error": str(e)}
 
-# Root endpoint
-@app.get("/")
-async def root():
-    return {"message": "Toxic Text Classification API is running!"}
+# 🔥 Start both Flask & FastAPI servers in threads
+def run_flask():
+    app_flask.run(port=5000)
+
+def run_fastapi():
+    uvicorn.run(app_fastapi, host="0.0.0.0", port=8000)
+
+# Start Flask & FastAPI in separate threads
+Thread(target=run_flask).start()
+Thread(target=run_fastapi).start()
+
+# Start ngrok tunnel for public access
+public_url = ngrok.connect(5000)
+print(f"🔥 NSFW API URL: {public_url}")
+
+public_url_text = ngrok.connect(8000)
+print(f"🔥 Toxic Text API URL: {public_url_text}")
